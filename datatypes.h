@@ -36,6 +36,7 @@ typedef enum {
    MC_STATE_DETECTING,
    MC_STATE_RUNNING,
    MC_STATE_FULL_BRAKE,
+   IS_PARKED = 1,
 } mc_state;
 
 typedef enum {
@@ -54,6 +55,7 @@ typedef enum {
 	SENSOR_MODE_SENSORED,
 	SENSOR_MODE_HYBRID
 } mc_sensor_mode;
+ 
 
 typedef enum {
 	FOC_SENSOR_MODE_SENSORLESS = 0,
@@ -1126,6 +1128,9 @@ typedef enum {
 	COMM_FW_INFO							= 157,
 
 	COMM_CAN_UPDATE_BAUD_ALL				= 158,
+
+	// CUSTOM
+	COMM_PARK_MODE = 200,
 } COMM_PACKET_ID;
 
 // CAN commands

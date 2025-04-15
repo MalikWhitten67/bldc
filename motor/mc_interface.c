@@ -53,6 +53,7 @@
 volatile uint16_t ADC_Value[HW_ADC_CHANNELS + HW_ADC_CHANNELS_EXTRA];
 volatile float ADC_curr_norm_value[6];
 volatile float ADC_curr_raw[6];
+ 
 
 typedef struct {
 	mc_configuration m_conf;
@@ -139,6 +140,11 @@ typedef struct {
 	int info_argn;
 	float info_args[2];
 } fault_data_local;
+
+
+typedef struct {
+	volatile bool is_parked;
+} mc_interface;
 
 static volatile fault_data_local m_fault_data = {0, FAULT_CODE_NONE, 0, 0, {0, 0}};
 
@@ -592,7 +598,23 @@ void mc_interface_set_duty_noramp(float dutyCycle) {
 
 	events_add("set_duty_noramp", dutyCycle);
 }
-
+void mc_interface_set_parked(bool parked) {
+	chSysLock();
+	 if(parked){
+		 mc_interface instance;
+		 instance.is_parked = true;
+	 }
+	chSysUnlock();
+}
+  
+ bool mc_interface_is_parked(void) {
+	bool ret;
+	chSysLock();
+	mc_interface instance;
+	ret = instance.is_parked;
+	chSysUnlock();
+	return ret;
+}
 void mc_interface_set_pid_speed(float rpm) {
 	if (fabsf(rpm) > 0.001) {
 		SHUTDOWN_RESET();

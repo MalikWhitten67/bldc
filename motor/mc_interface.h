@@ -23,7 +23,11 @@
 #include "conf_general.h"
 #include "hw.h"
 #include "datatypes.h"
-
+ 
+  
+  // Function prototypes
+void mc_interface_set_parked(bool parked);
+bool mc_interface_is_parked(void);
 // Functions
 void mc_interface_init(void);
 int mc_interface_motor_now(void);
@@ -39,7 +43,7 @@ void mc_interface_unlock(void);
 void mc_interface_lock_override_once(void);
 mc_fault_code mc_interface_get_fault(void);
 const char* mc_interface_fault_to_string(mc_fault_code fault);
-mc_state mc_interface_get_state(void);
+mc_state mc_interface_get_state(void); 
 mc_control_mode mc_interface_get_control_mode(void);
 void mc_interface_set_duty(float dutyCycle);
 void mc_interface_set_duty_noramp(float dutyCycle);

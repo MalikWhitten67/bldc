@@ -619,7 +619,7 @@ void mcpwm_foc_deinit(void) {
 	DMA_DeInit(DMA2_Stream4);
 	nvicDisableVector(ADC_IRQn);
 	dmaStreamRelease(STM32_DMA_STREAM(STM32_DMA_STREAM_ID(2, 4)));
-}
+} 
 
 static volatile motor_all_state_t *get_motor_now(void) {
 #ifdef HW_HAS_DUAL_MOTORS
@@ -4516,6 +4516,8 @@ static void control_current(motor_all_state_t *motor, float dt) {
 	float dec_vd = 0.0;
 	float dec_vq = 0.0;
 	float dec_bemf = 0.0;
+
+	 
 
 	if (motor->m_control_mode < CONTROL_MODE_HANDBRAKE && conf_now->foc_cc_decoupling != FOC_CC_DECOUPLING_DISABLED) {
 		switch (conf_now->foc_cc_decoupling) {

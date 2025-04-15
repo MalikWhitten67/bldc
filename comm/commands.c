@@ -227,6 +227,14 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 	}
 
 	switch (packet_id) {
+    case COMM_PARK_MODE: {
+		uint8_t mode = data[0];
+		if(mode == 1){
+			 mc_interface_set_parked(true);
+		} else if (mode == 0){ 
+			mc_interface_set_parked(false);
+		}
+	}break;
 	case COMM_FW_VERSION: {
 		int32_t ind = 0;
 		uint8_t send_buffer[65];
