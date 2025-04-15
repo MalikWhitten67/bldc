@@ -172,6 +172,8 @@ static THD_WORKING_AREA(stat_thread_wa, 512);
 static THD_FUNCTION(stat_thread, arg);
 
 void mc_interface_init(void) {
+	mc_interface interface;
+	interface.is_parked = false;
 	memset((void*)&m_motor_1, 0, sizeof(motor_if_state_t));
 #ifdef HW_HAS_DUAL_MOTORS
 	memset((void*)&m_motor_2, 0, sizeof(motor_if_state_t));
@@ -598,15 +600,20 @@ void mc_interface_set_duty_noramp(float dutyCycle) {
 
 	events_add("set_duty_noramp", dutyCycle);
 }
+/**
+ * Allows you to kill adc input
+ */
 void mc_interface_set_parked(bool parked) {
 	chSysLock();
 	 if(parked){
 		 mc_interface instance;
-		 instance.is_parked = true;
+		 instance.is_parked =  parked;
 	 }
 	chSysUnlock();
 }
-  
+  /**
+   * Allows you to check if the adc input is killed
+   */
  bool mc_interface_is_parked(void) {
 	bool ret;
 	chSysLock();

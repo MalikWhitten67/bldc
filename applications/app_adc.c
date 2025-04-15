@@ -632,7 +632,7 @@ static THD_FUNCTION(adc_thread, arg) {
 					}
 				}
 
-				if (is_reverse) {
+				if (is_reverse && !mc_interface_is_parked()) {
 					mc_interface_set_current_rel(-current_out);
 				} else if(!mc_interface_is_parked()){
 					mc_interface_set_current_rel(current_out);

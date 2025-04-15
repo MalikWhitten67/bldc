@@ -1131,6 +1131,8 @@ typedef enum {
 
 	// CUSTOM
 	COMM_PARK_MODE = 200,
+	COMM_PARK_UNLOCK = 201,
+	COMM_GET_PARKED_STATUS = 202,
 } COMM_PACKET_ID;
 
 // CAN commands

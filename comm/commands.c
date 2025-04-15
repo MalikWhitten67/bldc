@@ -228,13 +228,22 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 
 	switch (packet_id) {
     case COMM_PARK_MODE: {
-		uint8_t mode = data[0];
-		if(mode == 1){
-			 mc_interface_set_parked(true);
-		} else if (mode == 0){ 
-			mc_interface_set_parked(false);
-		}
+		mc_interface_set_parked(true); 
+		commands_printf("Park mode set");
 	}break;
+	case COMM_PARK_UNLOCK: {
+		 if(mc_interface_is_parked()){
+			mc_interface_set_parked(false);
+		 }
+		 commands_printf("Park mode unlocked");
+	}break;
+	case COMM_GET_PARKED_STATUS:{
+		int32_t ind = 0;
+		uint8_t send_buffer[50];
+		send_buffer[ind++] = COMM_GET_PARKED_STATUS;
+		send_buffer[ind++] = mc_interface_is_parked();
+		reply_func(send_buffer, ind);
+	} break;
 	case COMM_FW_VERSION: {
 		int32_t ind = 0;
 		uint8_t send_buffer[65];
