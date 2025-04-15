@@ -604,9 +604,7 @@ void mc_interface_set_duty_noramp(float dutyCycle) {
  */
 void mc_interface_set_parked(bool parked) {
 	chSysLock();
-	 if(parked){
-		  m_is_parked = parked;
-	 }
+	m_is_parked = parked;
 	chSysUnlock();
 }
   /**
