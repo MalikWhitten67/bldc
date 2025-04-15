@@ -97,7 +97,8 @@ typedef struct {
 	uint64_t m_runtime_last;
 } motor_if_state_t;
 
-// Private variables
+// Private variables 
+static bool m_is_parked = false;
 static volatile motor_if_state_t m_motor_1;
 #ifdef HW_HAS_DUAL_MOTORS
 static volatile motor_if_state_t m_motor_2;
@@ -171,9 +172,8 @@ static thread_t *fault_stop_tp;
 static THD_WORKING_AREA(stat_thread_wa, 512);
 static THD_FUNCTION(stat_thread, arg);
 
-void mc_interface_init(void) {
-	mc_interface interface;
-	interface.is_parked = false;
+void mc_interface_init(void) { 
+	m_is_parked = false;
 	memset((void*)&m_motor_1, 0, sizeof(motor_if_state_t));
 #ifdef HW_HAS_DUAL_MOTORS
 	memset((void*)&m_motor_2, 0, sizeof(motor_if_state_t));
@@ -260,8 +260,7 @@ void mc_interface_init(void) {
 	}
 
 	bms_init((bms_config*)&m_motor_1.m_conf.bms);
-}
-
+} 
 int mc_interface_motor_now(void) {
 #if defined HW_HAS_DUAL_MOTORS || defined HW_HAS_DUAL_PARALLEL
 	int isr_motor = mcpwm_foc_isr_motor();
@@ -606,8 +605,7 @@ void mc_interface_set_duty_noramp(float dutyCycle) {
 void mc_interface_set_parked(bool parked) {
 	chSysLock();
 	 if(parked){
-		 mc_interface instance;
-		 instance.is_parked =  parked;
+		  m_is_parked = parked;
 	 }
 	chSysUnlock();
 }
@@ -617,8 +615,7 @@ void mc_interface_set_parked(bool parked) {
  bool mc_interface_is_parked(void) {
 	bool ret;
 	chSysLock();
-	mc_interface instance;
-	ret = instance.is_parked;
+	ret = m_is_parked;
 	chSysUnlock();
 	return ret;
 }
