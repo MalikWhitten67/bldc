@@ -98,7 +98,8 @@ typedef struct {
 	float m_tc_slip;
 
 	// Backup data counters
-	uint64_t m_odometer_last;
+	double m_odometer_last_abs;
+	double m_odometer_meter_frac;
 	uint64_t m_runtime_last;
 } motor_if_state_t;
 
@@ -2365,7 +2366,7 @@ static void update_override_limits(volatile motor_if_state_t *motor, volatile mc
 	const float temp_batt_ratio = utils_map(motor->m_temp_batt_est, 25.0, conf->l_temp_fet_end, 0.0, 1.0);
 	float temp_ratio = fmaxf(fmaxf(temp_fet_ratio, temp_motor_ratio), temp_batt_ratio);
 	utils_truncate_number_abs(&temp_ratio, 1.0);
-	float shift_target = utils_map(temp_ratio, 0.0, 1.0, 1.10, 0.35);
+	float shift_target = utils_map(temp_ratio, 0.0, 1.0, 1.15, 0.55);
 	UTILS_LP_FAST(motor->m_internal_shift, shift_target, 0.02);
 
 	// Temperature MOSFET
@@ -2494,13 +2495,17 @@ static void update_override_limits(volatile motor_if_state_t *motor, volatile mc
 	const float rpm_drop = motor->m_rpm_abs_prev - rpm_abs;
 	const float rpm_drop_th = fmaxf(motor->m_rpm_abs_prev * 0.02, 80.0);
 	float tc_event = 0.0;
-	if (duty_now_abs > 0.08 && i_motor_abs > 5.0 && rpm_drop > rpm_drop_th) {
+	if (rpm_abs > 800.0 && duty_now_abs > 0.08 && i_motor_abs > 5.0 && rpm_drop > rpm_drop_th) {
 		tc_event = utils_map(rpm_drop, rpm_drop_th, rpm_drop_th * 6.0, 0.0, 1.0);
 		utils_truncate_number_abs(&tc_event, 1.0);
 	}
 	motor->m_rpm_abs_prev = rpm_abs;
-	UTILS_LP_FAST(motor->m_tc_slip, tc_event, 0.1);
-	const float tc_scale = 1.0 - (0.6 * motor->m_tc_slip);
+	if (tc_event > motor->m_tc_slip) {
+		UTILS_LP_FAST(motor->m_tc_slip, tc_event, 0.12);
+	} else {
+		UTILS_LP_FAST(motor->m_tc_slip, tc_event, 0.03);
+	}
+	const float tc_scale = 1.0 - (0.35 * motor->m_tc_slip);
 
 	if (tc_scale < 0.999) {
 		if (lo_max_mos > 0.0) lo_max_mos *= tc_scale;
@@ -2608,9 +2613,21 @@ static void run_timer_tasks(volatile motor_if_state_t *motor) {
 
 	// Update backup data (for motor 1 only)
 	if (is_motor_1) {
-		uint64_t odometer = mc_interface_get_distance_abs();
-		g_backup.odometer += odometer - m_motor_1.m_odometer_last;
-		m_motor_1.m_odometer_last = odometer;
+		double odometer_abs = (double)mc_interface_get_distance_abs();
+		double odometer_delta = odometer_abs - m_motor_1.m_odometer_last_abs;
+
+		if (odometer_delta < 0.0 || odometer_delta > 1000.0) {
+			odometer_delta = 0.0;
+		}
+
+		m_motor_1.m_odometer_last_abs = odometer_abs;
+		m_motor_1.m_odometer_meter_frac += odometer_delta;
+
+		if (m_motor_1.m_odometer_meter_frac >= 1.0) {
+			uint64_t meters_int = (uint64_t)m_motor_1.m_odometer_meter_frac;
+			g_backup.odometer += meters_int;
+			m_motor_1.m_odometer_meter_frac -= (double)meters_int;
+		}
 
 		uint64_t runtime = chVTGetSystemTimeX() / CH_CFG_ST_FREQUENCY;
 

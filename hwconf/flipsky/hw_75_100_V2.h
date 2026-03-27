@@ -106,12 +106,15 @@
 #ifndef CURRENT_AMP_GAIN
 #define CURRENT_AMP_GAIN		20.0 //
 #endif
+#ifndef VIN_SENS_GAIN
+#define VIN_SENS_GAIN			1.152 // Calibrated so pack voltage displays correctly near 100 V on 75_100_V2
+#endif
 #ifndef CURRENT_SHUNT_RES
 #define CURRENT_SHUNT_RES		(0.0005 / 3.0) // (jaykup) updated
 #endif
 
 // Input voltage
-#define GET_INPUT_VOLTAGE()		((V_REG / 4095.0) * (float)ADC_Value[ADC_IND_VIN_SENS] * ((VIN_R1 + VIN_R2) / VIN_R2))
+#define GET_INPUT_VOLTAGE()		((V_REG / 4095.0) * (float)ADC_Value[ADC_IND_VIN_SENS] * ((VIN_R1 + VIN_R2) / VIN_R2) * VIN_SENS_GAIN)
 
 // NTC Termistors
 #define NTC_RES(adc_val)		((4095.0 * 10000.0) / adc_val - 10000.0)
