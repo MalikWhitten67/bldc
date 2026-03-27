@@ -91,15 +91,23 @@ typedef struct {
 	float m_input_voltage_filtered_slower;
 	float m_temp_override;
 	float m_i_in_filter;
+	float m_temp_motor_est;
+	float m_temp_batt_est;
+	float m_internal_shift;
+	float m_rpm_abs_prev;
+	float m_tc_slip;
 
 	// Backup data counters
-	uint64_t m_odometer_last;
+	double m_odometer_last_abs;
+	double m_odometer_meter_frac;
 	uint64_t m_runtime_last;
 } motor_if_state_t;
 
 // Private variables 
 static bool m_is_parked = false;
 static volatile motor_if_state_t m_motor_1;
+static uint64_t m_odometer_last_persisted = 0;
+static systime_t m_odometer_last_persisted_time = 0;
 #ifdef HW_HAS_DUAL_MOTORS
 static volatile motor_if_state_t m_motor_2;
 #endif
@@ -201,6 +209,9 @@ void mc_interface_init(void) {
 	m_sample_is_second_motor = false;
 
 	mc_interface_stat_reset();
+
+	m_odometer_last_persisted = g_backup.odometer;
+	m_odometer_last_persisted_time = chVTGetSystemTimeX();
 
 	// Start threads
 	chThdCreateStatic(timer_thread_wa, sizeof(timer_thread_wa), NORMALPRIO, timer_thread, NULL);
@@ -2329,6 +2340,24 @@ static void update_override_limits(volatile motor_if_state_t *motor, volatile mc
 		temp_motor = -100.0;
 	}
 
+	const float i_motor_abs = fabsf(mc_interface_get_tot_current_directional_filtered());
+	const float i_in_abs = fabsf(mc_interface_get_tot_current_in_filtered());
+	float temp_motor_est_tgt = motor->m_temp_fet + (0.015 * i_motor_abs);
+	if (temp_motor_est_tgt < 20.0) {
+		temp_motor_est_tgt = 20.0;
+	}
+	UTILS_LP_FAST(motor->m_temp_motor_est, temp_motor_est_tgt, 0.02);
+
+	float temp_batt_est_tgt = 25.0 + 0.12 * (motor->m_temp_fet - 25.0) + 0.02 * i_in_abs;
+	if (temp_batt_est_tgt < 20.0) {
+		temp_batt_est_tgt = 20.0;
+	}
+	UTILS_LP_FAST(motor->m_temp_batt_est, temp_batt_est_tgt, 0.01);
+
+	if (temp_motor < -90.0) {
+		temp_motor = motor->m_temp_motor_est;
+	}
+
 	UTILS_LP_FAST(motor->m_temp_motor, temp_motor, MOTOR_TEMP_LPF);
 
 #ifdef HW_HAS_GATE_DRIVER_SUPPLY_MONITOR
@@ -2337,6 +2366,13 @@ static void update_override_limits(volatile motor_if_state_t *motor, volatile mc
 
 	const float l_current_min_tmp = conf->l_current_min * conf->l_current_min_scale;
 	const float l_current_max_tmp = conf->l_current_max * conf->l_current_max_scale;
+	const float temp_fet_ratio = utils_map(motor->m_temp_fet, 25.0, conf->l_temp_fet_end, 0.0, 1.0);
+	const float temp_motor_ratio = utils_map(motor->m_temp_motor, 25.0, conf->l_temp_motor_end, 0.0, 1.0);
+	const float temp_batt_ratio = utils_map(motor->m_temp_batt_est, 25.0, conf->l_temp_fet_end, 0.0, 1.0);
+	float temp_ratio = fmaxf(fmaxf(temp_fet_ratio, temp_motor_ratio), temp_batt_ratio);
+	utils_truncate_number_abs(&temp_ratio, 1.0);
+	float shift_target = utils_map(temp_ratio, 0.0, 1.0, 1.15, 0.55);
+	UTILS_LP_FAST(motor->m_internal_shift, shift_target, 0.02);
 
 	// Temperature MOSFET
 	float lo_min_mos = l_current_min_tmp;
@@ -2428,6 +2464,10 @@ static void update_override_limits(volatile motor_if_state_t *motor, volatile mc
 	} else {
 		lo_max_rpm = utils_map(rpm_now, rpm_pos_cut_start, rpm_pos_cut_end, l_current_max_tmp, 0.0);
 	}
+	lo_max_rpm *= motor->m_internal_shift;
+	if (lo_max_rpm > l_current_max_tmp) {
+		lo_max_rpm = l_current_max_tmp;
+	}
 
 	// RPM min
 	float lo_min_rpm = 0.0;
@@ -2455,6 +2495,28 @@ static void update_override_limits(volatile motor_if_state_t *motor, volatile mc
 	} else {
 		lo_max_duty = utils_map(duty_now_abs, (conf->l_duty_start * conf->l_max_duty),
 				conf->l_max_duty, l_current_max_tmp, conf->cc_min_current * 5.0);
+	}
+
+	const float rpm_drop = motor->m_rpm_abs_prev - rpm_abs;
+	const float rpm_drop_th = fmaxf(motor->m_rpm_abs_prev * 0.02, 80.0);
+	float tc_event = 0.0;
+	if (rpm_abs > 800.0 && duty_now_abs > 0.08 && i_motor_abs > 5.0 && rpm_drop > rpm_drop_th) {
+		tc_event = utils_map(rpm_drop, rpm_drop_th, rpm_drop_th * 6.0, 0.0, 1.0);
+		utils_truncate_number_abs(&tc_event, 1.0);
+	}
+	motor->m_rpm_abs_prev = rpm_abs;
+	if (tc_event > motor->m_tc_slip) {
+		UTILS_LP_FAST(motor->m_tc_slip, tc_event, 0.12);
+	} else {
+		UTILS_LP_FAST(motor->m_tc_slip, tc_event, 0.03);
+	}
+	const float tc_scale = 1.0 - (0.35 * motor->m_tc_slip);
+
+	if (tc_scale < 0.999) {
+		if (lo_max_mos > 0.0) lo_max_mos *= tc_scale;
+		if (lo_max_mot > 0.0) lo_max_mot *= tc_scale;
+		if (lo_max_rpm > 0.0) lo_max_rpm *= tc_scale;
+		if (lo_max_duty > 0.0) lo_max_duty *= tc_scale;
 	}
 
 	// Input current limits
@@ -2556,9 +2618,21 @@ static void run_timer_tasks(volatile motor_if_state_t *motor) {
 
 	// Update backup data (for motor 1 only)
 	if (is_motor_1) {
-		uint64_t odometer = mc_interface_get_distance_abs();
-		g_backup.odometer += odometer - m_motor_1.m_odometer_last;
-		m_motor_1.m_odometer_last = odometer;
+		double odometer_abs = (double)mc_interface_get_distance_abs();
+		double odometer_delta = odometer_abs - m_motor_1.m_odometer_last_abs;
+
+		if (odometer_delta < 0.0 || odometer_delta > 1000.0) {
+			odometer_delta = 0.0;
+		}
+
+		m_motor_1.m_odometer_last_abs = odometer_abs;
+		m_motor_1.m_odometer_meter_frac += odometer_delta;
+
+		if (m_motor_1.m_odometer_meter_frac >= 1.0) {
+			uint64_t meters_int = (uint64_t)m_motor_1.m_odometer_meter_frac;
+			g_backup.odometer += meters_int;
+			m_motor_1.m_odometer_meter_frac -= (double)meters_int;
+		}
 
 		uint64_t runtime = chVTGetSystemTimeX() / CH_CFG_ST_FREQUENCY;
 
@@ -2569,6 +2643,21 @@ static void run_timer_tasks(volatile motor_if_state_t *motor) {
 
 		g_backup.runtime += runtime - m_motor_1.m_runtime_last;
 		m_motor_1.m_runtime_last = runtime;
+
+		const uint64_t meters_since_persist = g_backup.odometer - m_odometer_last_persisted;
+		const systime_t now = chVTGetSystemTimeX();
+		const bool persist_time_due = ST2MS(now - m_odometer_last_persisted_time) > (20 * 60 * 1000);
+		const bool persist_dist_due = meters_since_persist >= 250;
+
+		if ((persist_time_due || persist_dist_due) &&
+				fabsf(mc_interface_get_rpm()) < 150.0 &&
+				fabsf(mc_interface_get_tot_current_directional_filtered()) < 3.0 &&
+				fabsf(mc_interface_get_duty_cycle_now()) < 0.02) {
+			if (conf_general_store_backup_data()) {
+				m_odometer_last_persisted = g_backup.odometer;
+				m_odometer_last_persisted_time = now;
+			}
+		}
 	}
 
 	motor->m_f_samp_now = mc_interface_get_sampling_frequency_now();
